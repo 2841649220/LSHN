@@ -86,8 +86,8 @@ def forward_step(
 单步前向传播（1ms快时钟）。
 
 **参数：**
-- `x`: (batch, input_dim) 原始输入
-- `target`: (batch, num_classes) 目标（用于误差驱动学习）
+- `x`: (`batch`, `input_dim`) 原始输入
+- `target`: (`batch`, `num_classes`) 目标（用于误差驱动学习）
 
 **返回：**
 字典包含：
@@ -546,9 +546,9 @@ def __init__(
 def forward(self, x: torch.Tensor) -> torch.Tensor
 ```
 
-**输入：** (batch_size, in_features) 连续输入信号
+**输入：** ($B 	imes d_{in}$) 连续输入信号
 
-**输出：** (batch_size, out_features) 泊松脉冲 {0, 1}
+**输出：** ($B 	imes d_{out}$) 泊松脉冲 {0, 1}
 
 ### DynamicExpansionHead
 
@@ -641,10 +641,10 @@ def sparse_event_driven_matmul(
 **说明：** 仅当神经元发放脉冲(spk=1)时才提取相应权重进行计算。
 
 **参数：**
-- `spk`: (batch_size, in_features) 或 (in_features,) 脉冲张量
+- `spk`: ($B 	imes d_{in}$) 或 ($d_{in}$,) 脉冲张量
 - `weight`: (out_features, in_features) 权重矩阵
 
-**返回：** (batch_size, out_features) 或 (out_features,)
+**返回：** ($B 	imes d_{out}$) 或 ($d_{out}$,)
 
 ### ContinualLearningMetrics
 
@@ -879,7 +879,7 @@ output = model.forward_step(x, target)
 - **版本**: v0.9 Beta
 - **最后更新**: 2026年3月
 - **作者**: Apocalypse
-- **GitHub**: [LSHNN](https://github.com/2841649220/LSHNN)
+- **GitHub**: [LSHN](https://github.com/2841649220/LSHN)
 - **许可证**: MIT
 
 ---

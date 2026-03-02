@@ -1,6 +1,6 @@
 # LSHN 系统架构：形式化数学描述
 
-> **版本**: v0.9.1 Beta 　|　**更新**: 2026年3月 　|　**作者**: Apocalypse 　|　**GitHub**: [LSHNN](https://github.com/2841649220/LSHNN)
+> **版本**: v0.9 Beta 　|　**更新**: 2026年3月 　|　**作者**: Apocalypse 　|　**GitHub**: [LSHN](https://github.com/2841649220/LSHN)
 
 本文档以严格的数学语言定义液态脉冲超图网络（LSHN）的系统架构，包括符号系统、动力学方程、模块数据流及与神经生物学的映射关系。
 
@@ -563,4 +563,4 @@ LSHN 通过形式化的数学框架将生物脑的多尺度组织原则转化为
 
 ---
 
-**版本**: v0.9 Beta 　|　**最后更新**: 2026年3月 　|　**作者**: Apocalypse 　|　**GitHub**: [LSHNN](https://github.com/2841649220/LSHNN)
+**版本**: v0.9 Beta 　|　**最后更新**: 2026年3月 　|　**作者**: Apocalypse 　|　**GitHub**: [LSHN](https://github.com/2841649220/LSHN)
