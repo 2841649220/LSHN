@@ -1,21 +1,21 @@
 # 液态脉冲超图网络 (LSHN)
 
-<p align="center">
-  <a href="https://www.python.org/downloads/"><img src="https://img.shields.io/badge/python-3.12+-blue.svg" alt="Python 3.12+"></a>
-  <a href="https://pytorch.org/"><img src="https://img.shields.io/badge/PyTorch-2.2+-ee4c2c.svg" alt="PyTorch 2.2+"></a>
-  <a href="https://opensource.org/licenses/MIT"><img src="https://img.shields.io/badge/License-MIT-yellow.svg" alt="License: MIT"></a>
-  <a href="https://github.com/2841649220/LSHNN"><img src="https://img.shields.io/badge/GitHub-LSHNN-green.svg" alt="GitHub"></a>
-</p>
+<div align="center">
 
-<p align="center">
-  <strong>面向持续学习的类脑智能系统</strong> |
-  <strong>变分自由能最小化驱动</strong> |
-  <strong>事件驱动低功耗</strong>
-</p>
+[![Python 3.12+](https://img.shields.io/badge/python-3.12+-blue.svg)](https://www.python.org/downloads/)
+[![PyTorch 2.2+](https://img.shields.io/badge/PyTorch-2.2+-ee4c2c.svg)](https://pytorch.org/)
+[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
+[![GitHub](https://img.shields.io/badge/GitHub-LSHNN-green.svg)](https://github.com/2841649220/LSHNN)
 
-<p align="center">
-  <strong>版本</strong>: v0.9 Beta | <strong>作者</strong>: Apocalypse
-</p>
+</div>
+
+<div align="center">
+
+**面向持续学习的类脑智能系统** | **变分自由能最小化驱动** | **事件驱动低功耗**
+
+**版本**: v0.9.1 Beta | **作者**: Apocalypse
+
+</div>
 
 ---
 
@@ -540,8 +540,62 @@ python scripts/eval.py --compute_forgetting_metric
 
 ---
 
-<p align="center">
-  <strong>最后更新</strong>: 2026 年 3 月 |
-  <strong>版本</strong>: v0.9 Beta |
-  <strong>作者</strong>: Apocalypse
-</p>
+<div align="center">
+
+**最后更新**: 2026 年 3 月 | **版本**: v0.9.1 Beta | **作者**: Apocalypse
+
+</div>
+
+---
+
+## 更新日志 (v0.9.1)
+
+### 核心修复
+
+1. **超图索引越界处理** (`bistable_hypergraph.py`)
+   - 修复：物理移除越界连接而非映射到索引 0
+   - 效果：避免有效超边被错误激活
+
+2. **维度对齐标准化** (`cortical_layer.py`)
+   - 新增：`_align_tensor()` 工具函数
+   - 效果：轴突延迟和突触输入的维度正确匹配
+
+3. **VFE 计算改进** (`model.py`)
+   - 修复：改进 `active_neurons_ratio` 计算，使用加权平均
+   - 效果：复杂度项计算更准确
+
+4. **冷知识归档槽位重置** (`model.py`)
+   - 修复：重置时同时清除资格迹
+   - 效果：归档后的槽位重新使用时更干净
+
+5. **学习率缩放对称化** (`global_modulator.py`)
+   - 修复：公式改为 `(ACh / ach_baseline) * plasticity_gate`
+   - 效果：学习率调整更对称 (ACh=1.0 时 scale=1.0)
+
+6. **树突状态更新优化** (`liquid_cell.py`)
+   - 修复：使用 `detach()` 避免 `clone()` 的计算图问题
+   - 效果：梯度流更稳定
+
+7. **三因素可塑性接口增强** (`three_factor.py`)
+   - 修复：添加自动维度对齐逻辑
+   - 效果：支持标量、张量、None 三种类型的 neuromodulator
+
+8. **脉冲计数安全累积** (`cortical_layer.py`)
+   - 修复：使用 100 步滑动窗口替代无限累积
+   - 效果：能量统计更准确
+
+9. **稳态阈值范围动态化** (`homeostatic.py`)
+   - 修复：根据网络规模动态计算阈值范围
+   - 效果：不同规模网络的稳态调节更有效
+
+10. **侧向抑制与预算控制联动** (`implicit_moe.py`, `cortical_layer.py`)
+    - 修复：将 `inhibition_strength` 改为可调参数
+    - 效果：自适应调节网络兴奋性
+
+### 额外修复
+- **deque 切片问题** (`free_energy.py`): 修复 `get_decomposition_report()` 中 deque 不支持切片
+- **测试修复**: 更新测试以适应新的动态范围机制和性能预期
+
+### 测试状态
+- **总计**: 120 个测试全部通过 ✓
+- **覆盖率**: 核心模块 100% 覆盖

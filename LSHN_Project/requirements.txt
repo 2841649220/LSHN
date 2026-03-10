@@ -1,7 +1,0 @@
-torch>=2.2.0
-torchvision>=0.17.0
-numpy>=1.24.0
-snntorch>=0.7.0
-pyyaml>=6.0
-typing-extensions>=4.5.0
-safetensors>=0.4.0
