@@ -51,19 +51,19 @@ for x, target in dataloader:
 
 | 机制 | 技术实现 | 生物学对应 |
 |:---:|:---|:---|
-| **多时间尺度解耦** | $\mathbb{T}_{\text{fast}}$ ($1\,\text{ms}$) / $\mathbb{T}_{\text{slow}}$ ($100\,\text{ms}$) / $\mathbb{T}_{\text{ultra}}$ ($1000\,\text{ms}$) | 离子通道 vs G 蛋白偶联受体 vs 结构可塑性 |
-| **双势阱突触** | $U(s_e) = \frac{\alpha}{4}s_e^4 - \frac{\alpha}{2}s_e^2$, $ds_e = -\nabla U(s_e)dt + \sqrt{2T}dW$ | LTP/LTD 分子双稳态 |
-| **三因素学习规则** | $\Delta\hat{w}_e = \eta \cdot e_{\text{trace}} \odot \delta_{\text{post}} \odot M_{\text{DA}}$ | 突触可塑性三因素理论 |
-| **海马体 - 皮层双系统** | $\text{Hippocampus} \xrightarrow{\text{fast encode}} \text{Cortex} \xleftarrow{\text{generative replay}}$ | 系统巩固理论 |
-| **神经元 - 超边协同演化** | $\text{Contribution}_e = \mathbb{E}[\mathcal{F}_{\setminus e} - \mathcal{F}_{\text{full}}]$ | 神经发生/凋亡机制 |
+| **多时间尺度解耦** | T_fast (1ms) / T_slow (100ms) / T_ultra (1000ms) | 离子通道 vs G 蛋白偶联受体 vs 结构可塑性 |
+| **双势阱突触** | U(s_e) = (α/4)s_e^4 - (α/2)s_e^2, ds_e = -∇U(s_e)dt + √(2T)dW | LTP/LTD 分子双稳态 |
+| **三因素学习规则** | Δŵ_e = η · e_trace ⊙ δ_post ⊙ M_DA | 突触可塑性三因素理论 |
+| **海马体 - 皮层双系统** | Hippocampus →(fast encode) Cortex ←(generative replay) | 系统巩固理论 |
+| **神经元 - 超边协同演化** | Contribution_e = E[F_(-e) - F_full] | 神经发生/凋亡机制 |
 
 ### 工程优化特性
 
 | 特性 | 描述 | 效果 |
 |:---:|:---|:---:|
-| **事件驱动能效** | 仅当神经元发放时更新突触电流 | 功耗降低 $5$–$10\times$ |
-| **混合精度训练** | BF16/FP8 加速计算 + FP32 保护 SNN 状态变量 | 速度$\uparrow$ 显存$\downarrow$ |
-| **FP8 实验性加速** | NVIDIA H100/RTX 4090 的 $8$ 位浮点格式（E4M3/E5M2） | 显存减少 $50\%$ |
+| **事件驱动能效** | 仅当神经元发放时更新突触电流 | 功耗降低 5–10× |
+| **混合精度训练** | BF16/FP8 加速计算 + FP32 保护 SNN 状态变量 | 速度↑ 显存↓ |
+| **FP8 实验性加速** | NVIDIA H100/RTX 4090 的 8 位浮点格式（E4M3/E5M2） | 显存减少 50% |
 | **冷知识归档** | INT4 量化压缩失活超边至 NVMe | 无限学习容量 |
 | **脉冲预算控制** | PI 控制器动态调节阈值/抑制强度 | 目标能耗 |
 | **动态输出扩容** | 增量分类任务自动增加输出神经元 | 无需重训练 |
@@ -87,7 +87,7 @@ for x, target in dataloader:
 #### 1. 输入编码层 (MODWTEncoder)
 
 - **多尺度重叠离散小波变换**（MODWT）
-- 支持 Haar/DB4 小波基，$3$ 层分解
+- 支持 Haar/DB4 小波基，3 层分解
 - 泊松编码生成脉冲序列
 
 #### 2. 海马体快速学习层 (SpikingAutoEncoder)
@@ -98,9 +98,9 @@ for x, target in dataloader:
 
 #### 3. 皮层核心网络层 (CorticalLayer)
 
-- **$50$ 万液态门控元胞**（可选树突非线性）
-- **双势阱超图突触**（$5$ 万条超边）
-- **隐式 MoE**（$100$ 功能分区 + 侧向抑制）
+- **50 万液态门控元胞**（可选树突非线性）
+- **双势阱超图突触**（5 万条超边）
+- **隐式 MoE**（100 功能分区 + 侧向抑制）
 - 轴突延迟学习 + 三因素可塑性
 - 稳态可塑性控制 + 凋亡生发机制
 
@@ -114,9 +114,9 @@ for x, target in dataloader:
 
 | 引擎 | 职责 | 关键功能 |
 |:---:|:---|:---|
-| `ClockSyncEngine` | 多时间尺度时钟同步 | $1\,\text{ms}$/$100\,\text{ms}$/$1000\,\text{ms}$ 事件触发 |
-| `FreeEnergyEngine` | 变分自由能计算 | $\text{VFE} = \mathcal{F} + \lambda_E \cdot \mathbb{E}[\text{events}]$ 分解监控 |
-| `GlobalNeuromodulator` | 神经调质计算 | $\text{ACh}$ (精度)/$\text{NE}$ (温度)/$\text{DA}$ (第三因子) |
+| `ClockSyncEngine` | 多时间尺度时钟同步 | 1ms/100ms/1000ms 事件触发 |
+| `FreeEnergyEngine` | 变分自由能计算 | VFE = F + λ_E · E[events] 分解监控 |
+| `GlobalNeuromodulator` | 神经调质计算 | ACh (精度)/NE (温度)/DA (第三因子) |
 | `SpikeBudgetController` | 能量预算反馈 | PI 控制维持目标脉冲数 |
 | `KnowledgeArchiver` | 冷知识归档 | INT4 量化压缩失活超边 |
 
@@ -131,7 +131,7 @@ for x, target in dataloader:
 | **Python** | 3.12+ | 3.12+ |
 | **PyTorch** | 2.2.0+ | 2.2.0+（支持 `torch.autocast` 混合精度） |
 | **CUDA** | 12.1+ | RTX 4090/A100/H100（大规模仿真） |
-| **显存** | 24G | 96G（支持 $50$ 万神经元 + $5$ 万超边） |
+| **显存** | 24G | 96G（支持 50 万神经元 + 5 万超边） |
 
 ### 快速安装
 
@@ -339,20 +339,20 @@ python scripts/train.py --target_spikes_per_step 2500
 LSHN 默认使用 BF16（Brain Floating Point 16）混合精度训练：
 
 - **计算加速**：BF16 提供与 FP32 相似的数值范围，适合深度学习训练
-- **显存优化**：相比 FP32 可减少约 $50\%$ 显存占用
+- **显存优化**：相比 FP32 可减少约 50% 显存占用
 - **状态保护**：SNN 状态变量（膜电位、发放状态、资格迹）强制使用 FP32
 
 ### FP8 实验性加速（PyTorch 2.1+）
 
-FP8 是 NVIDIA H100 和 RTX 4090 引入的 $8$ 位浮点格式，提供两种变体：
+FP8 是 NVIDIA H100 和 RTX 4090 引入的 8 位浮点格式，提供两种变体：
 
 | 格式 | 指数位 | 尾数位 | 数值范围 | 适用场景 |
 |:---:|:---:|:---:|:---:|:---|
-| **E4M3** | $4$ 位 | $3$ 位 | $\pm 448$ | 前向激活、权重 |
-| **E5M2** | $5$ 位 | $2$ 位 | $\pm 57344$ | 梯度计算 |
+| **E4M3** | 4 位 | 3 位 | ±448 | 前向激活、权重 |
+| **E5M2** | 5 位 | 2 位 | ±57344 | 梯度计算 |
 
 **优势**：
-- 相比 BF16 可进一步减少 $50\%$ 显存占用
+- 相比 BF16 可进一步减少 50% 显存占用
 - 在支持 TensorFloat-32 的硬件上可获得额外加速
 
 **限制**：
@@ -444,17 +444,17 @@ LSHN_Project/
 
 | 规模 | 神经元数 | 超边数 | 推荐硬件 | 显存占用 |
 |:---:|:---:|:---:|:---:|:---:|
-| **入门** | $1$ 万 | $1000$ | RTX 3090 (24G) | $\sim 8$G |
-| **验证** | $10$ 万 | $1$ 万 | RTX 4090 (24G) / A100 (40G) | $\sim 20$G |
-| **全规模** | $50$ 万 | $5$ 万 | A100 (80G) / H100 (80G) | $\sim 60$G |
-| **极限** | $100$ 万 | $10$ 万 | A100$\times 2$ / H100$\times 2$ | $\sim 120$G |
+| **入门** | 1 万 | 1000 | RTX 3090 (24G) | ~8G |
+| **验证** | 10 万 | 1 万 | RTX 4090 (24G) / A100 (40G) | ~20G |
+| **全规模** | 50 万 | 5 万 | A100 (80G) / H100 (80G) | ~60G |
+| **极限** | 100 万 | 10 万 | A100×2 / H100×2 | ~120G |
 
 ### 优化技巧
 
 1. **启用混合精度**：`--mixed_precision true`（默认开启）
-2. **启用 FP8 加速**（实验性）：`--fp8_enabled true`（需 H100/RTX 4090，可减少 $50\%$ 显存）
-3. **降低脉冲预算**：`--target_spikes_per_step 2500`（降低 $50\%$ 能耗）
-4. **禁用树突非线性**：`--enable_dendrites false`（节省 $20\%$ 显存）
+2. **启用 FP8 加速**（实验性）：`--fp8_enabled true`（需 H100/RTX 4090，可减少 50% 显存）
+3. **降低脉冲预算**：`--target_spikes_per_step 2500`（降低 50% 能耗）
+4. **禁用树突非线性**：`--enable_dendrites false`（节省 20% 显存）
 5. **减少功能分区**：`--num_groups 50`（降低侧抑制计算）
 
 ---
@@ -465,8 +465,8 @@ LSHN_Project/
 
 **A**: LSHN 的核心创新在于：
 
-1. **双势阱突触**：分离快权重 $\hat{w}$ 与慢结构 $s_e$，实现"结构固化、权重微调"
-2. **变分自由能统一**：所有模块优化同一目标函数 $\mathcal{J}=\mathcal{F}+\lambda_E\cdot \mathbb{E}[\text{events}]$
+1. **双势阱突触**：分离快权重 ŵ 与慢结构 s_e，实现"结构固化、权重微调"
+2. **变分自由能统一**：所有模块优化同一目标函数 J=F+λ_E·E[events]
 3. **神经调质闭环**：ACh/NE/DA 动态调节精度/温度/第三因子
 4. **冷知识归档**：INT4 压缩失活超边，实现无限学习容量
 
@@ -480,16 +480,15 @@ python scripts/train.py --config configs/default.yaml \
 python scripts/eval.py --compute_forgetting_metric
 ```
 
-遗忘率 $F \approx 0$ 表示无灾难性遗忘。
+遗忘率 F ≈ 0 表示无灾难性遗忘。
 
 ### Q: 冷知识归档如何工作？
 
-**A**: 超慢时钟（每 $1000$ms）自动触发：
+**A**: 超慢时钟（每 1000ms）自动触发：
 
-1. 检测冷边：$\neg(\text{edge\_mask}) \lor (s_e < 0.05)$
-2. INT4 通道级量化：$\hat{w}_{\text{int4}} = \text{round}\left(\frac{w-\mu}{\sigma}\cdot 7\right)\odot\text{sign}(w)$
-3. 导出至 NVMe（元数据 + 量化参数 + 拓扑）
-4. 重置冷槽：$w_\text{hat}=0, s_e=0.5$ 供重新生长
+1. 检测冷边：¬(edge_mask) ∨ (s_e < 0.05)
+2. INT4 通道级量化：ŵ_int4 = round((w-μ)/σ·7)⊙sign(w)
+4. 重置冷槽：w_hat=0, s_e=0.5 供重新生长
 
 ### Q: FP8 实验性加速的兼容性如何？
 
@@ -498,8 +497,8 @@ python scripts/eval.py --compute_forgetting_metric
 - **硬件要求**：NVIDIA H100、RTX 4090 及更新架构
 - **软件要求**：PyTorch 2.1 或更高版本
 - **格式选择**：
-  - E4M3（推荐）：适合前向激活和权重，数值范围 $\pm 448$
-  - E5M2：适合梯度计算，数值范围 $\pm 57344$
+  - E4M3（推荐）：适合前向激活和权重，数值范围 ±448
+  - E5M2：适合梯度计算，数值范围 ±57344
 - **保护机制**：SNN 状态变量（膜电位、发放状态、资格迹）强制使用 FP32，避免数值不稳定
 
 ### Q: 如何适配 MindSpore/昇腾 NPU？

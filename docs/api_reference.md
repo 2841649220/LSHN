@@ -337,8 +337,8 @@ def __init__(
 ```
 
 **核心公式：**
-- `F(q,θ) = -E_q(s)[log p_θ(o|s)] + D_KL(q(s)||p_θ(s))`
-- `J = F + λ_E * E[#SynapticEvents]`
+- F(q,θ) = -E_q(s)[log p_θ(o|s)] + D_KL(q(s)||p_θ(s))
+- J = F + λ_E · E[#SynapticEvents]
 
 #### 主要方法
 
@@ -546,9 +546,9 @@ def __init__(
 def forward(self, x: torch.Tensor) -> torch.Tensor
 ```
 
-**输入：** ($B 	imes d_{in}$) 连续输入信号
+**输入：** (B × d_in) 连续输入信号
 
-**输出：** ($B 	imes d_{out}$) 泊松脉冲 {0, 1}
+**输出：** (B × d_out) 泊松脉冲 {0, 1}
 
 ### DynamicExpansionHead
 
@@ -641,10 +641,10 @@ def sparse_event_driven_matmul(
 **说明：** 仅当神经元发放脉冲(spk=1)时才提取相应权重进行计算。
 
 **参数：**
-- `spk`: ($B 	imes d_{in}$) 或 ($d_{in}$,) 脉冲张量
+- `spk`: (B × d_in) 或 (d_in,) 脉冲张量
 - `weight`: (out_features, in_features) 权重矩阵
 
-**返回：** ($B 	imes d_{out}$) 或 ($d_{out}$,)
+**返回：** (B × d_out) 或 (d_out,)
 
 ### ContinualLearningMetrics
 

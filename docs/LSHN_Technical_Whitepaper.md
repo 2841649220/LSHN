@@ -8,7 +8,7 @@
 
 ## 摘要
 
-液态脉冲超图网络（Liquid Spiking Hypergraph Network, LSHN）是一个面向开放世界与长期在线场景的持续学习系统，在资源受限硬件上实现低能耗、可扩容、抗遗忘与可解释的类脑智能。系统以**变分自由能最小化（Variational Free Energy, $	ext{VFE}$）**为统一理论框架，将多时间尺度脉冲动力学、突触可塑性与结构演化纳入同一闭环优化过程，并显式引入能量预算与不确定性驱动的推理机制。
+液态脉冲超图网络（Liquid Spiking Hypergraph Network, LSHN）是一个面向开放世界与长期在线场景的持续学习系统，在资源受限硬件上实现低能耗、可扩容、抗遗忘与可解释的类脑智能。系统以**变分自由能最小化（Variational Free Energy, VFE）**为统一理论框架，将多时间尺度脉冲动力学、突触可塑性与结构演化纳入同一闭环优化过程，并显式引入能量预算与不确定性驱动的推理机制。
 
 LSHN 整合五大核心技术突破：
 
@@ -66,21 +66,22 @@ LSHN 将所有模块统一到变分自由能最小化框架，所有动力学更
 
 **变分自由能标准形式**：
 
-$$\mathcal{F}(q,\theta)=\mathbb{E}_{q(\mathbf{s})}\left[\log q(\mathbf{s})-\log p_\theta(\mathbf{o},\mathbf{s})\right]$$
+F(q,θ) = E_q(s)[log q(s) - log p_θ(o,s)]
 
 **等价分解**（便于工程监控）：
 
-$$\mathcal{F}=\underbrace{-\mathbb{E}_{q(\mathbf{s})}[\log p_\theta(\mathbf{o}|\mathbf{s})]}_{\text{预测误差/Accuracy 相反数}} + \underbrace{D_{KL}(q(\mathbf{s})\parallel p_\theta(\mathbf{s}))}_{\text{复杂度}}$$
+F = -E_q(s)[log p_θ(o|s)] + D_KL(q(s) || p_θ(s))
+   = 预测误差/Accuracy 相反数 + 复杂度
 
 其中：
-- $\mathbf{o}$ 为观测输入
-- $\mathbf{s}$ 为系统内部状态（膜电位、门控变量、突触权重、超边结构等）
+- o 为观测输入
+- s 为系统内部状态（膜电位、门控变量、突触权重、超边结构等）
 - 预测误差项决定"把哪类误差当真"（精度/不确定性调制）
 - 复杂度项决定"结构要不要付出复杂度成本"（稀疏性、模型选择）
 
 **完整目标函数**（含能量约束）：
 
-$$\mathcal{J}=\mathcal{F} + \lambda_E \cdot \mathbb{E}\left[\#\text{SynapticEvents}\right]$$
+J = F + λ_E · E[#SynapticEvents]
 
 能量正则项将"突触事件数/脉冲率"纳入优化闭环，通过反馈控制维持预算并与遗忘率协同优化。
 
@@ -88,7 +89,7 @@ $$\mathcal{J}=\mathcal{F} + \lambda_E \cdot \mathbb{E}\left[\#\text{SynapticEven
 
 当系统需要执行动作选择或感知选择时（如机器人控制、主动探索），引入**预期自由能（Expected Free Energy, EFE）**：
 
-$$G(\pi)=\mathbb{E}_{q(\mathbf{o},\mathbf{s}\mid \pi)}\left[\log q(\mathbf{s}\mid \pi)-\log p(\mathbf{o},\mathbf{s})\right]$$
+G(π) = E_q(o,s|π)[log q(s|π) - log p(o,s)]
 
 EFE 分解为三部分驱动探索 - 利用平衡：
 - **风险**：偏好不满足程度
@@ -97,7 +98,7 @@ EFE 分解为三部分驱动探索 - 利用平衡：
 
 ### 2.3 自由能分解的可解释监控
 
-LSHN 在线训练/推理过程中每个时间窗的$\mathcal{F}$ 被分解并记录为以下可解释指标：
+LSHN 在线训练/推理过程中每个时间窗的 F 被分解并记录为以下可解释指标：
 
 | 监控维度 | 具体指标 | 工程映射 |
 |---------|---------|---------|
@@ -149,21 +150,21 @@ LSHN 采用分层解耦的四层架构，各模块通过标准化接口通信，
 
 | 变量 | 符号 | 时间尺度 | 生物机制 |
 |-----|------|---------|---------|
-| 膜电位 | $v_i$ | 快 (ms) | 跨膜电位变化 |
-| 快门控 | $g_i^\text{fast}$ | 快 (ms) | 离子通道门控 |
-| 慢门控 | $g_i^\text{slow}$ | 慢 (100ms) | 星形胶质调控 |
-| 适应变量 | $a_i$ | 慢 (秒) | 慢速钾电流 |
+| 膜电位 | v_i | 快 (ms) | 跨膜电位变化 |
+| 快门控 | g_i^fast | 快 (ms) | 离子通道门控 |
+| 慢门控 | g_i^slow | 慢 (100ms) | 星形胶质调控 |
+| 适应变量 | a_i | 慢 (秒) | 慢速钾电流 |
 
 **动力学方程**（离散化实现）：
 
 膜电位更新：
-$$v_i(t+1) = \tau_v^{-1} v_i(t) + (1-\tau_v^{-1}) \left( I_i^\text{syn} + I_i^\text{ext} - I_i^\text{inh} \right) + \sigma(g_i^\text{fast}) \cdot \eta_i$$
+v_i(t+1) = τ_v^(-1) v_i(t) + (1-τ_v^(-1))(I_i^syn + I_i^ext - I_i^inh) + σ(g_i^fast) · η_i
 
 快门控更新：
-$$g_i^\text{fast}(t+1) = \tau_{g,f}^{-1} g_i^\text{fast}(t) + (1-\tau_{g,f}^{-1}) \cdot \sigma\left( W_f v_i + U_f a_i \right)$$
+g_i^fast(t+1) = τ_(g,f)^(-1) g_i^fast(t) + (1-τ_(g,f)^(-1)) · σ(W_f v_i + U_f a_i)
 
 慢门控更新：
-$$g_i^\text{slow}(t+1) = \tau_{g,s}^{-1} g_i^\text{slow}(t) + (1-\tau_{g,s}^{-1}) \cdot \sigma\left( W_s \bar{y}_i + U_s \bar{\delta}_i + Z_s e_\text{global} \right)$$
+g_i^slow(t+1) = τ_(g,s)^(-1) g_i^slow(t) + (1-τ_(g,s)^(-1)) · σ(W_s y̅_i + U_s δ̅_i + Z_s e_global)
 
 **树突非线性扩展**（可选）：引入轻量树突分支/亚室，实现局部阈值、Ca 尖峰样事件、分支独立积分，提升单元表达能力。
 
@@ -171,45 +172,51 @@ $$g_i^\text{slow}(t+1) = \tau_{g,s}^{-1} g_i^\text{slow}(t) + (1-\tau_{g,s}^{-1}
 
 将传统二元突触扩展为高阶超边，通过双势阱动力学实现结构自适应演化：
 
-**超边定义**：每个超边$e$连接神经元集合$\mathcal{E} = \{i_1,i_2,...,i_k\}$，维护：
-- 快变权重 $\hat{w}_e \in [-1,1]$：快速更新
-- 结构变量 $s_e \in [0,1]$：双势阱慢速演化
-- 资格迹 $e_e(t)$：活动历史记录
+**超边定义**：每个超边 e 连接神经元集合 E = {i_1,i_2,...,i_k}，维护：
+- 快变权重 ŵ_e ∈ [-1,1]：快速更新
+- 结构变量 s_e ∈ [0,1]：双势阱慢速演化
+- 资格迹 e_e(t)：活动历史记录
 
-**有效权重耦合**：$w_e = w_\text{max} \cdot s_e \cdot \hat{w}_e$
+**有效权重耦合**：w_e = w_max · s_e · ŵ_e
 
 **双势阱动力学**：
-$$U(s_e) = \frac{\alpha}{4} s_e^4 - \frac{\alpha}{2} s_e^2$$
+
+U(s_e) = (α/4) s_e^4 - (α/2) s_e^2
 
 结构变量更新：
-$$s_e(t+1) = \text{clip}\left( s_e(t) + \Delta t \cdot \left( -\frac{dU}{ds_e} + \beta C_e + \gamma M + \delta R \right) + \sqrt{2\Delta t T} \cdot \xi, 0, 1 \right)$$
 
-其中$C_e$为共发放项，$M$为全局调制，$R$为回放信号，$T$为温度参数。
+s_e(t+1) = clip( s_e(t) + Δt · (-dU/ds_e + β C_e + γ M + δ R) + √(2Δt T) · ξ, 0, 1)
+
+其中 C_e 为共发放项，M 为全局调制，R 为回放信号，T 为温度参数。
 
 **超图卷积传播**：
-$$I_j^{\text{syn}} = \sum_{e \in \mathcal{E}} H_{je} \left( w_e \cdot \frac{1}{|\mathcal{N}(e)|} \sum_{i \in \mathcal{N}(e)} x_i \right)$$
+
+I_j^syn = Σ_(e∈E) H_je(w_e · (1/|N(e)|) Σ_(i∈N(e)) x_i)
 
 ### 3.5 三因素预测误差学习
 
 基于生物预测编码与三因素突触可塑性理论，实现局部信用分配：
 
 **误差脉冲编码**：将预测误差编码为泊松脉冲序列
-$$f_\delta = \sigma(|\delta| \cdot \Sigma^{-1}) \cdot f_\text{max}$$
+
+f_δ = σ(|δ| · Σ^(-1)) · f_max
 
 **多跳资格迹**：
-$$e_e(t+1) = \lambda_e e_e(t) + y_\text{pre}(t) \cdot y_\text{post}(t) + \sigma(g_\text{post}^\text{slow}) \cdot \sum_{e' \in \text{local}} w_{e'} e_{e'}(t)$$
+
+e_e(t+1) = λ_e e_e(t) + y_pre(t) · y_post(t) + σ(g_post^slow) · Σ_(e'∈local) w_e' e_e'(t)
 
 **三因素更新规则**：
-$$\Delta \hat{w}_e = \eta \cdot e_e(t) \cdot b_\text{post}(t)$$
 
-其中$b_\text{post}$为反向误差脉冲，更新后资格迹重置。
+Δŵ_e = η · e_e(t) · b_post(t)
+
+其中 b_post 为反向误差脉冲，更新后资格迹重置。
 
 ### 3.6 神经元 - 超边协同演化
 
 基于因果贡献度量化，实现无损自剪枝与精准扩容：
 
 **因果贡献度定义**：
-- 超边：$\text{Contribution}_e = \mathbb{E}\left[ \mathcal{F}(w_e=0) - \mathcal{F}(w_e=\text{current}) \right]$
+- 超边：Contribution_e = E[F(w_e=0) - F(w_e=current)]
 - 神经元：关联超边贡献度之和
 
 **程序性凋亡**：
@@ -250,19 +257,19 @@ $$\Delta \hat{w}_e = \eta \cdot e_e(t) \cdot b_\text{post}(t)$$
 
 将"脉冲预算/突触事件数"作为可控资源，通过 PI 控制器维持预算：
 
-$$\lambda_E(t+1) = \lambda_E(t) + \alpha \cdot (\text{current\_spikes} - \text{target\_budget})$$
+λ_E(t+1) = λ_E(t) + α · (current_spikes - target_budget)
 
 自适应调节稀疏正则系数、阈值、抑制强度，使持续学习与能耗在同一闭环内收敛。
 
 ### 3.10 冷知识归档机制
 
-检测失活超边（$s_e < 0.05$且已被剪枝），通过 INT4 量化压缩导出至 NVMe 存储：
+检测失活超边（s_e < 0.05 且已被剪枝），通过 INT4 量化压缩导出至 NVMe 存储：
 
 **归档流程**：
-1. 冷边检测：$\neg(\text{edge\_mask}) \lor (s_e < 0.05)$
-2. INT4 通道级量化：$\hat{w}_{\text{int4}} = \text{round}(\frac{w - \mu}{\sigma} \cdot 7) \odot \text{sign}(w)$
+1. 冷边检测：¬(edge_mask) ∨ (s_e < 0.05)
+2. INT4 通道级量化：ŵ_int4 = round((w - μ)/σ · 7) ⊙ sign(w)
 3. 元数据打包：拓扑索引 + 量化参数 + 结构变量
-4. 槽位重置：$w_\text{hat}=0, s_e=0.5, \text{edge\_mask}=True$
+4. 槽位重置：w_hat=0, s_e=0.5, edge_mask=True
 
 实现理论上的无限学习容量。
 
@@ -286,9 +293,9 @@ $$\lambda_E(t+1) = \lambda_E(t) + \alpha \cdot (\text{current\_spikes} - \text{t
 采用**精度围栏（Precision Fence）**策略：
 
 | 模块 | 精度 | 理由 |
-|-----|------|-----|
+|:---|:---|:---|
 | `nn.Linear` / `SpikeHypergraphConv` | BF16 | 加速矩阵乘法 |
-| 所有状态变量（$v, g, a, \theta, s_e$） | FP32 | 防止累积误差导致脉冲消失 |
+| 所有状态变量（v, g, a, θ, s_e） | FP32 | 防止累积误差导致脉冲消失 |
 | 冷知识归档量化 | FP32→INT4 | 压缩存储 |
 
 #### 4.2.1 FP8 实验性加速（NVIDIA Hopper/Ada 架构）
@@ -301,7 +308,7 @@ $$\lambda_E(t+1) = \lambda_E(t) + \alpha \cdot (\text{current\_spikes} - \text{t
 |:-------|:-------------|:-------------|
 | 指数位 | 4 bits | 5 bits |
 | 尾数位 | 3 bits | 2 bits |
-| 动态范围 | $\pm 448$ | $\pm 57344$ |
+| 动态范围 | ±448 | ±57344 |
 | 典型用途 | 权重、激活 | 梯度 |
 
 **实现方案**：
@@ -325,9 +332,9 @@ scaler.update()
 
 **关键注意事项**：
 
-1. **状态变量保护**：膜电位 $v$、结构变量 $s_e$ 等状态必须保持 FP32，避免累积误差导致脉冲动力学不稳定
-2. **梯度缩放策略**：FP8 梯度需要配合动态缩放（dynamic scaling），建议初始缩放因子 $2^{12}$，根据溢出频率自适应调整
-3. **超边权重范围**：双势阱突触权重 $\hat{w}_e \in [-1,1]$ 适合 FP8 表示，但需监控离群值（outlier）比例
+1. **状态变量保护**：膜电位 v、结构变量 s_e 等状态必须保持 FP32，避免累积误差导致脉冲动力学不稳定
+2. **梯度缩放策略**：FP8 梯度需要配合动态缩放（dynamic scaling），建议初始缩放因子 2^12，根据溢出频率自适应调整
+3. **超边权重范围**：双势阱突触权重 ŵ_e ∈ [-1,1] 适合 FP8 表示，但需监控离群值（outlier）比例
 4. **硬件限制**：FP8 Tensor Core 要求矩阵维度为 16 的倍数，超图卷积的邻接矩阵需填充对齐
 
 **性能收益评估**：
@@ -336,7 +343,7 @@ scaler.update()
 |:-----|:----------|:---------|:-----|
 | 训练吞吐量 | 1.0× | 1.4-1.6× | 取决于矩阵乘法占比 |
 | 显存占用 | 1.0× | 0.6× | 权重/激活减半 |
-| 数值稳定性 | 稳定 | 需监控 | 脉冲发放率偏差 $< 2\%$ |
+| 数值稳定性 | 稳定 | 需监控 | 脉冲发放率偏差 < 2% |
 
 **限制条件**：
 - 仅推荐在 NVIDIA Hopper（SM90+）或 Ada Lovelace 架构 GPU 上启用
@@ -350,7 +357,7 @@ scaler.update()
 1. **稀疏张量存储**：仅保留有效连接，显存占用降低 90%+
 2. **事件驱动仿真**：仅当神经元发放脉冲时更新突触电流，效率提升 5-10 倍
 3. **梯度检查点**：牺牲少量计算速度换取显存大幅降低
-4. **局部连接限制**：组内全连接、组间稀疏（<5%），避免$O(N^2)$爆炸
+4. **局部连接限制**：组内全连接、组间稀疏（<5%），避免 O(N^2) 爆炸
 
 ### 4.4 模块接口规范
 
@@ -416,12 +423,12 @@ KnowledgeArchiver
 ### 5.3 核心评估指标
 
 | 指标类别 | 具体指标 | 目标值 |
-|---------|---------|-------|
+|:---|:---|:---|
 | **准确性** | 平均准确率、前向迁移 | ≥ 主流基线 |
-| **遗忘率** | 任务学习后准确率下降幅度 | $F \approx 0$ |
-| **能效** | 单位样本突触事件数、单位准确率能耗 | 比 Transformer 低 $1$–$2$ 数量级 |
-| **稀疏度** | 神经元平均发放率 | $1\%$–$5\%$ |
-| **压缩率** | 剪枝后参数量减少比例 | $30\%$–$90\%$ 无损 |
+| **遗忘率** | 任务学习后准确率下降幅度 | F ≈ 0 |
+| **能效** | 单位样本突触事件数、单位准确率能耗 | 比 Transformer 低 1–2 数量级 |
+| **稀疏度** | 神经元平均发放率 | 1%–5% |
+| **压缩率** | 剪枝后参数量减少比例 | 30%–90% 无损 |
 | **可靠性** | OOD 检测 ECE、风险 - 覆盖曲线 | 优于基线 |
 
 ---
@@ -521,17 +528,17 @@ LSHN 旨在为边缘端低功耗智能系统提供一套可扩展、可解释、
 ## 附录 A：核心符号表
 
 | 符号 | 定义 | 取值范围 |
-|-----|------|---------|
-| $\mathcal{N}$ | 神经元集合 | $\|\mathcal{N}\| = N = 5 \times 10^5$ |
-| $\mathcal{E}$ | 超边集合 | $\|\mathcal{E}\| = E$ |
-| $\mathbf{v}$ | 膜电位向量 | $(-\infty, \theta]$ |
-| $\mathbf{S}$ | 脉冲发放状态 | $\{0, 1\}$ |
-| $\hat{\mathbf{w}}$ | 快权重 | $[-1, 1]$ |
-| $\mathbf{s}_e$ | 结构变量 | $[0, 1]$ |
-| $\mathcal{F}$ | 变分自由能 | $\mathbb{R}^+$ |
-| $\mathbb{T}_{\text{fast}}$ | 快时间尺度 | $\Delta t = 1\text{ms}$ |
-| $\mathbb{T}_{\text{slow}}$ | 慢时间尺度 | $\Delta t = 100\text{ms}$ |
-| $\mathbb{T}_{\text{ultra}}$ | 超慢时间尺度 | $\Delta t = 1000\text{ms}$ |
+|:---|:---|:---|
+| N | 神经元集合 | ‖N‖ = N = 5 × 10^5 |
+| E | 超边集合 | ‖E‖ = E |
+| v | 膜电位向量 | (-∞, θ] |
+| S | 脉冲发放状态 | {0, 1} |
+| ŵ | 快权重 | [-1, 1] |
+| s_e | 结构变量 | [0, 1] |
+| F | 变分自由能 | R^+ |
+| T_fast | 快时间尺度 | Δt = 1ms |
+| T_slow | 慢时间尺度 | Δt = 100ms |
+| T_ultra | 超慢时间尺度 | Δt = 1000ms |
 
 ---
 
