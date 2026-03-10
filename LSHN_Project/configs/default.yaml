@@ -1,0 +1,166 @@
+# ============================================================
+# LSHN 默认配置文件
+# Liquid Spiking Hypergraph Network — 脑启发持续学习系统
+# ============================================================
+
+# ---------- 模型架构 ----------
+model:
+  input_dim: 128              # 原始输入维度
+  hidden_dim: 1024            # 海马体/编码器隐层维度
+  num_neurons: 500000         # 皮层神经元数 (50万)
+  num_groups: 100             # 皮层功能分区数 (隐式MoE列数)
+  max_edges: 50000            # 超图最大超边数 (num_neurons 的 10%)
+  initial_classes: 2          # 初始分类头类别数
+  enable_dendrites: true      # 是否启用树突区室非线性 (白皮书 §1.3.2)
+  enable_active_inference: false  # 是否启用主动推理 (白皮书 §3.1.1)
+
+# ---------- 多时间尺度时钟 ----------
+clocks:
+  fast_ms: 1                  # 快时钟 (脉冲传播)
+  slow_ms: 100                # 慢时钟 (突触/调质更新)
+  ultra_slow_ms: 1000         # 超慢时钟 (结构演化)
+
+# ---------- 液态门控细胞 ----------
+cell:
+  tau_fast: 10.0              # 快膜时间常数 (ms)
+  tau_slow: 100.0             # 慢门控时间常数 (ms)
+  threshold: 1.0              # 脉冲阈值
+  noise_std: 0.01             # 基础噪声标准差
+  dendrite_threshold: 0.5     # 树突Ca-spike阈值
+  dendrite_branches: 4        # 树突分支数
+
+# ---------- 双稳态超图突触 ----------
+synapse:
+  tau_pre: 20.0               # STDP前突触迹时间常数 (ms)
+  tau_post: 20.0              # STDP后突触迹时间常数 (ms)
+  tau_slow_se: 500.0          # s_e双势阱时间常数 (ms)
+  A_plus: 0.01                # STDP增强幅度
+  A_minus: 0.012              # STDP抑制幅度
+  tau_elig: 1000.0            # 资格迹时间常数 (ms)
+
+# ---------- 轴突延迟 ----------
+axonal_delay:
+  max_delay: 20               # 最大延迟步数
+  num_connections: 50000       # 连接数 (通常=max_edges)
+  delay_lr: 0.001             # 延迟学习率
+  min_delay: 1                # 最小延迟步数
+
+# ---------- 三因素可塑性 ----------
+three_factor:
+  lr: 0.001                   # 可塑性学习率
+  f_max: 1.0                  # 泊松编码器最大频率
+
+# ---------- 稳态可塑性 ----------
+homeostatic:
+  target_rate: 0.05           # 目标放电率
+  tau_rate: 1000.0            # 放电率估计时间常数 (ms)
+  scaling_strength: 0.01      # 突触缩放强度
+  ie_lr: 0.001                # 内在兴奋性学习率
+
+# ---------- 隐式MoE (侧抑制) ----------
+implicit_moe:
+  inhibition_strength: 0.5    # 侧抑制强度
+
+# ---------- 结构演化 (剪枝/生长) ----------
+evolution:
+  prune_threshold: 0.01       # 剪枝阈值 (权重绝对值)
+  growth_probability: 0.05    # 生长概率
+  min_alive_ratio: 0.3        # 最低存活比例
+
+# ---------- 全局神经调节器 ----------
+neuromodulator:
+  tau_ach: 200.0              # ACh时间常数 (ms)
+  tau_ne: 300.0               # NE时间常数 (ms)
+  tau_da: 500.0               # DA时间常数 (ms)
+  ach_gain: 0.05              # ACh增益
+  ne_gain: 0.05               # NE增益
+  da_gain: 0.1                # DA增益
+
+# ---------- 星形胶质门控 ----------
+astrocyte:
+  tau_ca: 5000.0              # 钙动力学时间常数 (ms)
+  ip3_gain: 0.02              # IP3增益
+
+# ---------- 变分自由能引擎 ----------
+free_energy:
+  kl_weight: 0.01             # KL散度权重 β
+  energy_lambda: 0.001        # 能量正则化 λ_E
+  energy_lambda_lr: 0.0001    # λ_E 自适应学习率
+
+# ---------- 脉冲预算控制器 ----------
+budget:
+  target_spikes_per_step: 5000  # 目标脉冲数/步 (1% 放电率 × 500K 神经元)
+  kp: 0.01                    # 比例增益
+  ki: 0.001                   # 积分增益
+  integral_max: 10.0          # 积分防饱和上限
+  threshold_adj_scale: 0.01   # 阈值调整比例
+  inhibition_adj_scale: 0.01  # 抑制调整比例
+
+# ---------- 主动推理 ----------
+active_inference:
+  num_policies: 8             # 策略数
+  state_dim: 1024              # 隐状态维度 (与 hidden_dim 对齐)
+  obs_dim: 128                # 观测维度
+  planning_horizon: 5         # 规划时域
+  efe_temperature: 1.0        # EFE softmax温度
+
+# ---------- 海马体 ----------
+hippocampus:
+  replay_interval: 100        # 回放间隔 (快时钟步数)
+  replay_steps: 1             # 每次回放步数
+
+# ---------- MODWT编码器 ----------
+encoder:
+  num_scales: 3               # 小波分解尺度数
+  wavelet: "db4"              # 小波基函数
+
+# ---------- 训练配置 ----------
+training:
+  batch_size: 64
+  learning_rate: 0.001
+  weight_decay: 0.0001
+  num_epochs: 100
+  fast_steps_per_sample: 20   # 每个样本运行的快时钟步数
+  optimizer: "adamw"
+  scheduler: "cosine"
+  warmup_steps: 500
+  gradient_clip: 1.0
+  log_interval: 50            # 日志打印间隔 (步)
+  save_interval: 1000         # 模型保存间隔 (步)
+
+# ---------- 持续学习 ----------
+continual:
+  tasks: 5                    # 总任务数
+  classes_per_task: 2         # 每个任务新增类别数
+  consolidation_epochs: 5     # 巩固轮次
+  replay_buffer_size: 10000    # 回放缓冲区大小
+
+# ---------- 数据 ----------
+data:
+  dataset: "split_mnist"      # 数据集名称
+  data_dir: "./data"          # 数据目录
+  num_workers: 4
+  pin_memory: true
+
+# ---------- 设备 ----------
+device:
+  cuda: true                  # 是否使用GPU
+  mixed_precision: false      # 是否混合精度 (已迁移至 precision 节)
+
+# ---------- 混合精度 ----------
+precision:
+  mixed_precision: true       # 是否启用 BF16 autocast (前向计算)
+  autocast_dtype: "bfloat16"  # autocast 目标精度: bfloat16 | float16 | float8_e4m3fn | float8_e5m2
+  use_fp8: false              # FP8 实验性加速 (需要 H100/RTX 4090 + PyTorch 2.1+)
+  # FP8 格式说明:
+  #   - E4M3 (float8_e4m3fn): 4位指数, 3位尾数, 范围±448, 适合前向激活/权重
+  #   - E5M2 (float8_e5m2): 5位指数, 2位尾数, 范围±57344, 适合梯度计算
+  # 注意: SNN 状态变量 (v, g_fast, g_slow, a, theta, traces) 始终 FP32,
+  #      不受 autocast 影响 (各模块内部有 FP32 围栏保护)
+
+# ---------- 冷知识归档器 ----------
+archiver:
+  enabled: true               # 是否启用 INT4 冷归档
+  archive_dir: "./cold_archive"  # 归档目录 (建议 NVMe SSD 路径)
+  group_size: 64              # INT4 量化分组大小
+  cold_threshold: 0.05        # s_e 低于此值视为冷边 (同时需已被剪枝)
