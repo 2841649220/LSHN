@@ -1,0 +1,10 @@
+torch>=2.0.0
+torchvision
+torch-geometric
+snntorch>=0.6.0
+numpy
+pytest
+matplotlib
+scikit-learn
+pyyaml
+typing-extensions
