@@ -145,9 +145,20 @@ class TestGlobalNeuromodulator:
         """测试学习率缩放"""
         modulator.step_slow(0.5, 0.05)
         lr_scale = modulator.get_learning_rate_scale()
-        
+
         assert lr_scale.dim() == 0  # 标量
         assert lr_scale.item() >= 0.0
+
+    def test_learning_rate_scale_equals_ach_times_calcium(self):
+        """学习率缩放恒等式: get_learning_rate_scale == ACh × calcium"""
+        modulator = GlobalNeuromodulator(num_neurons=32)
+        modulator.step_slow(2.0, 0.1, reward_signal=0.5)  # 扰动状态
+        lr_scale = modulator.get_learning_rate_scale()
+
+        expected = modulator.ACh * modulator.astrocyte.calcium
+        assert torch.allclose(lr_scale, expected)
+        # ACh ∈ [0.1, 2.0] (无 ×5 放大) → 缩放 ∈ [0.1×0.5, 2.0×1.0]
+        assert 0.0 <= lr_scale.item() <= 2.0
     
     def test_get_temperature(self, modulator):
         """测试温度获取"""
@@ -180,12 +191,30 @@ class TestGlobalNeuromodulator:
         for _ in range(500):
             result = modulator.step_slow(0.5, 0.05)
             values.append(result["ACh"].item())
-        
+
         # 后100步的方差应远小于前100步
         early_var = torch.tensor(values[:100]).var().item()
         late_var = torch.tensor(values[400:]).var().item()
         # 可能早期方差也很小，但至少不应爆炸
         assert late_var < early_var + 0.1
+
+    def test_reset_restores_initial_states(self):
+        """reset() 后各状态回初值 (ACh/NE/DA/EMA/钙)"""
+        modulator = GlobalNeuromodulator(num_neurons=32)
+        # 扰动全部状态
+        for _ in range(20):
+            modulator.step_slow(5.0, 0.5, reward_signal=1.0, ood_score=1.0)
+        assert modulator.ACh.item() != pytest.approx(1.0, abs=1e-3) or \
+            modulator.DA.item() != pytest.approx(0.01, abs=1e-3)
+
+        modulator.reset()
+
+        assert modulator.ACh.item() == pytest.approx(1.0, abs=1e-6)
+        assert modulator.NE.item() == pytest.approx(0.1, abs=1e-6)
+        assert modulator.DA.item() == pytest.approx(0.01, abs=1e-6)
+        assert modulator.error_ema.item() == pytest.approx(0.5, abs=1e-6)
+        assert modulator.surprise_ema.item() == pytest.approx(0.0, abs=1e-6)
+        assert modulator.astrocyte.calcium.item() == pytest.approx(0.5, abs=1e-6)
 
 
 if __name__ == "__main__":

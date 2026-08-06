@@ -30,27 +30,30 @@ class SynapticScaling(nn.Module):
     """
     
     def __init__(self, num_neurons: int, target_rate: float = 0.05,
-                 scaling_strength: float = 0.1, 
+                 scaling_strength: float = 0.1, ema_decay: float = 0.99,
                  device=None, dtype=None):
         super().__init__()
         factory_kwargs = {'device': device, 'dtype': dtype}
-        
+
         self.num_neurons = num_neurons
         self.target_rate = target_rate
         self.scaling_strength = scaling_strength
-        
+
         # 维护每个神经元的发放率 EMA
         self.register_buffer(
             "firing_rate_ema",
             torch.ones(num_neurons, **factory_kwargs) * target_rate
         )
-        self.ema_decay = 0.99
+        self.ema_decay = ema_decay
         
     def update_rates(self, spk: torch.Tensor):
         """
         更新发放率 EMA（每个快时间步调用）
         spk: (num_neurons,) 当前步的脉冲 {0, 1}
         """
+        # 形状防御: 传入 batched (batch, num_neurons) 时按 batch 平均
+        if spk.dim() > 1:
+            spk = spk.mean(dim=0)
         self.firing_rate_ema.data.mul_(self.ema_decay).add_(
             (1.0 - self.ema_decay) * spk.detach()
         )
@@ -77,27 +80,45 @@ class SynapticScaling(nn.Module):
         
         return scale
     
-    def apply_scaling(self, w_hat: torch.Tensor, neuron_to_edge_map: Optional[torch.Tensor] = None) -> torch.Tensor:
+    def apply_scaling(self, w_hat: torch.Tensor, neuron_to_edge_map: Optional[torch.Tensor] = None,
+                      alive_neuron_mask: Optional[torch.Tensor] = None) -> torch.Tensor:
         """
         对权重应用突触缩放
-        
+
         Args:
             w_hat: (max_edges,) 快权重
             neuron_to_edge_map: (max_edges,) 每条边对应的后突触神经元索引
                 如果 None，则对所有边使用平均缩放因子
-                
+            alive_neuron_mask: (num_neurons,) 神经元存活掩码 (bool)
+                提供时, 映射到死神经元的边缩放因子强制 1.0 —— 防止死神经元
+                关联边被 scale=2.0 持续放大到 ±1 饱和, 复活时爆发;
+                当 neuron_to_edge_map 为 None 时, 全局均值只统计存活神经元
+                (默认 None 时行为不变)。
+
         Returns:
             scaled_w_hat: 缩放后的权重
         """
         scale = self.compute_scaling_factors()
-        
+
         if neuron_to_edge_map is not None:
             # 每条边使用其后突触神经元的缩放因子
             edge_scale = scale[neuron_to_edge_map]
+            if alive_neuron_mask is not None:
+                # 死神经元关联边缩放强制 1.0 (不放大也不缩小),
+                # 使死神经元的边权重停在当前值, 复活时从稳定点继续而非爆发
+                alive_map = alive_neuron_mask.to(scale.device)[neuron_to_edge_map]
+                edge_scale = torch.where(alive_map, edge_scale, torch.ones_like(edge_scale))
             return w_hat * edge_scale
         else:
-            # 简化: 使用全局平均缩放
-            mean_scale = scale.mean()
+            # 简化: 使用全局平均缩放 (提供 mask 时剔除死神经元再求均值)
+            if alive_neuron_mask is not None:
+                alive = alive_neuron_mask.to(scale.device)
+                if alive.any():
+                    mean_scale = scale[alive].mean()
+                else:
+                    mean_scale = scale.mean()
+            else:
+                mean_scale = scale.mean()
             return w_hat * mean_scale
 
 
@@ -157,17 +178,27 @@ class HomeostaticController(nn.Module):
     """
     
     def __init__(self, num_neurons: int, target_rate: float = 0.05,
+                 scaling_strength: float = 0.1, ie_lr: float = 0.001,
+                 tau_rate: float = 100.0,
                  device=None, dtype=None):
         super().__init__()
         factory_kwargs = {'device': device, 'dtype': dtype}
-        
+
+        # tau_rate (ms) → 每快时钟步 (1ms) 的 EMA 衰减系数
+        ema_decay = 1.0 - 1.0 / max(tau_rate, 1.0)
         self.synaptic_scaling = SynapticScaling(
-            num_neurons, target_rate, **factory_kwargs
+            num_neurons, target_rate, scaling_strength=scaling_strength,
+            ema_decay=ema_decay, **factory_kwargs
         )
         self.ie_plasticity = IntrinsicExcitabilityPlasticity(
-            num_neurons, target_rate, **factory_kwargs
+            num_neurons, target_rate, ie_learning_rate=ie_lr, **factory_kwargs
         )
-    
+
+    def reset(self):
+        """重置发放率 EMA 与阈值调整 (保留网络权重)"""
+        self.synaptic_scaling.firing_rate_ema.fill_(self.synaptic_scaling.target_rate)
+        self.ie_plasticity.theta_ie.zero_()
+
     def step_fast(self, spk: torch.Tensor):
         """快时钟: 更新发放率 EMA"""
         self.synaptic_scaling.update_rates(spk)
@@ -189,7 +220,8 @@ class HomeostaticController(nn.Module):
             "theta_ie": theta_ie
         }
     
-    def apply_to_weights(self, w_hat: torch.Tensor, 
-                         neuron_to_edge_map: Optional[torch.Tensor] = None) -> torch.Tensor:
-        """对权重施加突触缩放"""
-        return self.synaptic_scaling.apply_scaling(w_hat, neuron_to_edge_map)
+    def apply_to_weights(self, w_hat: torch.Tensor,
+                         neuron_to_edge_map: Optional[torch.Tensor] = None,
+                         alive_neuron_mask: Optional[torch.Tensor] = None) -> torch.Tensor:
+        """对权重施加突触缩放 (透传 alive_neuron_mask 到 SynapticScaling)"""
+        return self.synaptic_scaling.apply_scaling(w_hat, neuron_to_edge_map, alive_neuron_mask)

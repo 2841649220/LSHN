@@ -1,10 +1,10 @@
+# LSHN 运行依赖 (与 setup.py 的 install_requires 保持一致)
+# 说明: pytest 为开发/测试依赖; 生产 Linux GPU 服务器建议按 CUDA 版本
+# 安装对应的 torch 构建, 例如:
+#   pip install torch --index-url https://download.pytorch.org/whl/cu121
 torch>=2.0.0
 torchvision
-torch-geometric
-snntorch>=0.6.0
 numpy
-pytest
-matplotlib
-scikit-learn
-pyyaml
+pyyaml>=6.0
 typing-extensions
+pytest

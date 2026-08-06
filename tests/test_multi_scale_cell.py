@@ -31,17 +31,24 @@ class TestDendriteCompartment:
         assert out.shape == (num_neurons,)
     
     def test_ca_spike_nonlinearity(self):
-        """测试 Ca 尖峰非线性：强输入应产生超线性输出"""
+        """测试 Ca 尖峰非线性：对比阈值 0 与 0.3 的输出差异"""
         num_neurons = 8
-        dc = DendriteCompartment(num_neurons, num_branches=4, dendrite_threshold=0.3)
-        
-        # 用较大输入重复推几步，让分支电位累积
+        torch.manual_seed(0)
+        # 相同权重, 仅树突阈值不同
+        dc_th = DendriteCompartment(num_neurons, num_branches=4, dendrite_threshold=0.3)
+        dc_0 = DendriteCompartment(num_neurons, num_branches=4, dendrite_threshold=0.0)
+        dc_0.load_state_dict(dc_th.state_dict())
+
+        # 第一步分支电位 = 输入 (bp 初始为 0): 强正输入 → 部分分支电位 > 0
         I_strong = torch.ones(num_neurons) * 5.0
-        for _ in range(5):
-            out = dc(I_strong)
-        
-        # 输出不应为零 (有 Ca 尖峰放大)
-        assert out.abs().sum() > 0.0
+        out_th = dc_th(I_strong)
+        out_0 = dc_0(I_strong)
+
+        # 阈值 0 版本: 一切正电位都进入 Ca 放大 (2×超线性);
+        # 阈值 0.3 版本: 0 < u ≤ 0.3 只线性通过, u > 0.3 放大幅度少 0.6
+        # → 输出不同且阈值 0 版本总和严格更大
+        assert not torch.allclose(out_0, out_th)
+        assert out_0.abs().sum().item() > out_th.abs().sum().item()
     
     def test_reset(self):
         """测试重置后分支电位归零"""
@@ -62,7 +69,8 @@ class TestLiquidGatedCell:
         num_neurons = 32
         cell = LiquidGatedCell(num_neurons=num_neurons)
         
-        assert cell.v.shape == (num_neurons,)
+        # v 初始为空 (0, num_neurons), 首次 forward 时按 batch 重建 (按样本持有)
+        assert cell.v.shape == (0, num_neurons)
         assert cell.g_fast.shape == (num_neurons,)
         assert cell.g_slow.shape == (num_neurons,)
         assert cell.a.shape == (num_neurons,)
@@ -124,33 +132,44 @@ class TestLiquidGatedCell:
         """测试慢时钟更新适应变量 a 和阈值 theta"""
         num_neurons = 5
         cell = LiquidGatedCell(num_neurons=num_neurons, theta_0=0.5)
-        
+
+        # 均值偏正的输入: 细胞按输入 EMA 标准差自适应归一化, 纯零均值
+        # randn 输入是围绕 0 的随机游走, 越过阈值 0.5 是低概率事件
+        # (~13% 随机种子下 100 步零发放 → a 恒为 0, 原测试 flaky);
+        # 正均值驱动膜电位确定性抬升, 发放与随机种子无关
         for _ in range(100):
-            cell.step_fast(torch.randn(num_neurons) * 5.0)
-        
+            cell.step_fast(torch.randn(num_neurons) * 2.0 + 3.0)
+
         old_a = cell.a.clone()
         old_theta = cell.theta.clone()
-        
+
         global_e = torch.tensor([1.0])
         cell.step_slow(global_e)
-        
+
         assert cell.a.shape == (num_neurons,)
         assert torch.any(cell.a > 0.0)
         assert torch.allclose(cell.theta, cell.theta_0 + cell.a)
     
     def test_step_slow_updates_g_slow(self):
-        """测试慢时钟更新 g_slow 门控变量"""
+        """测试慢时钟更新 g_slow 门控变量 (确定性驱动, 方向精确断言)"""
         num_neurons = 5
         cell = LiquidGatedCell(num_neurons=num_neurons)
-        
-        for _ in range(100):
-            cell.step_fast(torch.randn(num_neurons))
-        
+        # 确定性参数: 消除随机发放/随机权重影响, g_slow 目标仅由 global_e 驱动
+        cell.W_s.data.zero_()
+        cell.U_s.data.zero_()
+        cell.Z_s.data.fill_(1.0)
+        cell.bias_s.data.zero_()
+
+        for _ in range(50):
+            cell.step_fast(torch.zeros(num_neurons))
+
         old_g_slow = cell.g_slow.clone()
-        cell.step_slow(torch.tensor([0.5]))
-        
-        # g_slow 应被更新 (不太可能完全不变)
+        cell.step_slow(torch.tensor([2.0]))
+
+        # g_slow_target = sigmoid(W_s·spk + U_s·δ + Z_s·2 + bias) = sigmoid(2) ≈ 0.881 > 0.5
+        # EMA: g_slow = 0.995·old + 0.005·0.881 > old
         assert cell.g_slow.shape == (num_neurons,)
+        assert torch.all(cell.g_slow > old_g_slow)
     
     def test_get_plasticity_modulation(self):
         """测试可塑性调制返回 g_slow"""

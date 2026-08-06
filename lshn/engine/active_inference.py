@@ -59,7 +59,32 @@ class ActiveInferenceEngine(nn.Module):
         基于新观测更新后验信念 q(s)
         使用简化的贝叶斯滤波:
             q(s) ∝ p(o|s) * q_prior(s)
+
+        Args:
+            observation: 当前观测
+            prediction_error: 预测误差, 形状须与 belief_mean 兼容:
+                - 标量 (0 维): 广播到全部状态维度
+                - (state_dim,): 与 belief_mean 逐维对应
+                - (batch, state_dim): 先对 batch 维取均值, 再用于更新
+                其他形状将抛出 ValueError。
         """
+        # ---- 形状防御 ----
+        # 归一化 prediction_error 至与 belief_mean 兼容的形状
+        if prediction_error.dim() == 2 and prediction_error.shape[-1] == self.belief_mean.shape[0]:
+            # (batch, state_dim) -> (state_dim,), 对 batch 维取均值
+            prediction_error = prediction_error.mean(dim=0)
+        elif prediction_error.dim() == 1:
+            if prediction_error.shape != self.belief_mean.shape:
+                raise ValueError(
+                    f"prediction_error 形状 {tuple(prediction_error.shape)} 与 "
+                    f"belief_mean 形状 {tuple(self.belief_mean.shape)} 不匹配"
+                )
+        elif prediction_error.dim() != 0:
+            raise ValueError(
+                f"prediction_error 形状 {tuple(prediction_error.shape)} 不受支持: "
+                f"期望标量、(state_dim,) 或 (batch, state_dim)"
+            )
+
         lr = 0.1
         self.belief_mean.data.add_(lr * prediction_error.detach())
         log_abs_error = prediction_error.abs().clamp(min=1e-8).log()
@@ -70,10 +95,14 @@ class ActiveInferenceEngine(nn.Module):
                     ) -> Tuple[torch.Tensor, Dict[str, torch.Tensor]]:
         """
         计算所有策略的预期自由能 G(π)
-        
+
+        注意: 当前模块尚未接入 LSHNModel 主流程——模型初始化中的
+        enable_active_inference 标志为预留接口, 本引擎暂不参与前向/训练路径,
+        此处仅提供独立可用的 EFE 计算与策略选择能力。
+
         Args:
             current_state: (state_dim,) 或 (batch, state_dim) 当前隐状态
-            
+
         Returns:
             G: (num_policies,) 每个策略的 EFE
             components: 分解项字典 {risk, ambiguity, info_gain}

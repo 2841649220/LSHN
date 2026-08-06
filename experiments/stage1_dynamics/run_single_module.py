@@ -30,6 +30,24 @@ from lshn.engine import (
 from lshn.layers.cortex import CorticalLayer
 
 
+def _load_cortex_input_gain() -> float:
+    """
+    从 configs/default.yaml 读取皮层输入增益。
+
+    主训练路径经 configs/default.yaml 配置 cortex.input_gain=10.0 (否则默认 1.0
+    会因电流量级不足导致网络静默、窗口脉冲为 0 的误导性结果)。
+    """
+    try:
+        import yaml
+        with open(_project_root / "configs" / "default.yaml", "r", encoding="utf-8") as f:
+            cfg = yaml.safe_load(f)
+        return float(cfg.get("cortex", {}).get("input_gain", 10.0))
+    except Exception:
+        log_warn = f"[警告] 读取 default.yaml 失败, 使用默认皮层输入增益 10.0"
+        print(log_warn)
+        return 10.0
+
+
 def sep(title: str):
     print(f"\n{'='*60}")
     print(f"  {title}")
@@ -222,7 +240,10 @@ def test_cortical_layer():
     sep("7. 皮层集成层 — 全模块联动")
 
     N, E = 30, 15
-    cortex = CorticalLayer(in_channels=N, num_neurons=N, num_groups=3, max_edges=E)
+    # 显式传入与主训练路径一致的皮层输入增益 (configs/default.yaml: cortex.input_gain=10.0),
+    # 否则默认 1.0 会导致电流量级不足、网络静默、"窗口脉冲=0" 的误导性结果
+    cortex = CorticalLayer(in_channels=N, num_neurons=N, num_groups=3, max_edges=E,
+                           input_gain=_load_cortex_input_gain())
     neuromod = GlobalNeuromodulator(num_neurons=N)
 
     hyperedge_index = torch.stack([
@@ -239,7 +260,7 @@ def test_cortical_layer():
         if (t + 1) % 100 == 0:
             # 慢时钟
             mod = neuromod.step_slow(prediction_error=0.5, firing_rate=total_spikes / (100 * N))
-            global_e = mod["DA"].expand(N)
+            global_e = mod["DA"].unsqueeze(0).expand(N)  # 0-dim expand 在旧 torch 会崩溃, 先 unsqueeze
             cortex.step_slow(global_e, M_global=0.5, R_replay=0.1, T_temp=mod["NE"].item())
 
             spike_count = cortex.get_spike_count_and_reset()

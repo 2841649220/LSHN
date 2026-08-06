@@ -103,6 +103,45 @@ class TestSynapticScaling:
         scaled = scaler.apply_scaling(w_hat, neuron_to_edge_map=neuron_map)
         assert scaled.shape == (16,)
 
+    def test_apply_scaling_numeric(self):
+        """apply_scaling 数值断言: 固定 EMA 后 scaled == w_hat × scale[map] 逐元素"""
+        torch.manual_seed(0)
+        scaler = SynapticScaling(num_neurons=4, target_rate=0.05, scaling_strength=0.1)
+        # EMA 已知: 0.01 → scale = (0.05/0.01)^0.1 = 5^0.1
+        scaler.firing_rate_ema.fill_(0.01)
+        expected_scale = (5.0 ** 0.1)  # ≈ 1.1746, 未触发 clamp [0.5, 2.0]
+
+        w_hat = torch.randn(8)
+        neuron_map = torch.tensor([0, 1, 2, 3, 0, 1, 2, 3])
+        scaled = scaler.apply_scaling(w_hat, neuron_to_edge_map=neuron_map)
+
+        scale = scaler.compute_scaling_factors()
+        assert torch.allclose(scaled, w_hat * scale[neuron_map])
+        assert scale[0].item() == pytest.approx(expected_scale, rel=1e-4)
+
+    def test_apply_scaling_alive_neuron_mask(self):
+        """alive_neuron_mask: 死神经元关联边缩放因子强制 1.0"""
+        scaler = SynapticScaling(num_neurons=4, target_rate=0.05, scaling_strength=0.1)
+        # 低发放 EMA → scale ≈ 1.17 (上调); 死神经元关联边应保持 1.0
+        scaler.firing_rate_ema.fill_(0.01)
+
+        w_hat = torch.randn(8)
+        neuron_map = torch.tensor([0, 1, 2, 3, 0, 1, 2, 3])
+        alive = torch.tensor([True, True, False, True])  # 神经元 2 死亡
+
+        scaled = scaler.apply_scaling(w_hat, neuron_to_edge_map=neuron_map,
+                                      alive_neuron_mask=alive)
+        scale = scaler.compute_scaling_factors()
+
+        for e in range(8):
+            if neuron_map[e].item() == 2:
+                # 死神经元关联边: 缩放恒 1.0
+                assert scaled[e].item() == w_hat[e].item()
+            else:
+                assert scaled[e].item() == pytest.approx(
+                    (w_hat[e] * scale[neuron_map[e]]).item()
+                )
+
 
 # ============================================================
 # IntrinsicExcitabilityPlasticity 测试

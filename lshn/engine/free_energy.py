@@ -23,9 +23,13 @@ class FreeEnergyEngine:
     完整目标函数 (含能量预算):
         J = F + λ_E * E[#SynapticEvents]
     """
-    def __init__(self, kl_weight: float = 0.01, energy_lambda: float = 0.001):
+    def __init__(self, kl_weight: float = 0.01, energy_lambda: float = 0.001,
+                 energy_lambda_lr: float = 0.0001):
         self.kl_weight = kl_weight
         self.energy_lambda = energy_lambda
+        self.energy_lambda_lr = energy_lambda_lr
+        # 初始值缓存 (reset 时恢复, 避免 λ_E 漂移跨任务残留)
+        self._init_energy_lambda = energy_lambda
         
         # 历史记录 (用于可解释监控)
         self.history = {
@@ -37,24 +41,33 @@ class FreeEnergyEngine:
         }
         self.max_history = 1000
         
-    def compute_vfe(self, prediction_error: torch.Tensor, s_e_tensor: torch.Tensor, 
-                    active_neurons_ratio: float,
+    def compute_vfe(self, prediction_error: torch.Tensor, s_e_tensor: torch.Tensor,
+                    activity: float = 0.0,
                     synaptic_events: Optional[int] = None,
-                    precision: float = 1.0) -> Dict[str, float]:
+                    precision: float = 1.0,
+                    **kwargs) -> Dict[str, float]:
         """
         计算全局变分自由能和完整目标函数 J
-        
+
         Args:
             prediction_error: 预测误差张量
             s_e_tensor: 结构变量 s_e
-            active_neurons_ratio: 活跃神经元比例
+            activity: 活动度度量 (白皮书复杂度 E[S] ≈ 平均发放率;
+                作为监控量, 度量网络活跃程度; 仍为第 4 个位置参数)
             synaptic_events: 当前时间窗的突触事件数 (脉冲数)
             precision: 精度参数 (由 ACh 调制)
         """
+        # 向后兼容: 旧关键字名 active_neurons_ratio (model.py 等调用方
+        # 更新期间过渡), 新签名下应统一使用 activity
+        if "active_neurons_ratio" in kwargs:
+            activity = kwargs.pop("active_neurons_ratio")
+        if kwargs:
+            raise TypeError(f"compute_vfe() 收到未知参数: {sorted(kwargs)}")
+
         # === Accuracy 项 (精度加权的预测误差) ===
         # 对应白皮书: -E_q[log p(o|s)], 精度高 → 误差被放大
         accuracy_term = precision * torch.mean(prediction_error ** 2).item()
-        
+
         # === Complexity 项 ===
         # D_KL(q(s)||p(s)) 的近似:
         # 1. 结构复杂度: s_e 的 KL (鼓励稀疏结构)
@@ -63,7 +76,7 @@ class FreeEnergyEngine:
             + (1 - s_e_tensor) * torch.log((1 - s_e_tensor).clamp(min=1e-6) / 0.5)
         ).item()
         # 2. 活跃度复杂度
-        activity_cost = active_neurons_ratio
+        activity_cost = activity
         complexity_term = structure_kl + activity_cost
         
         # === VFE ===
@@ -107,7 +120,7 @@ class FreeEnergyEngine:
         """
         budget_error = current_events - target_budget
         # 如果超出预算, 增大惩罚; 低于预算, 减小惩罚
-        delta_lambda = 0.0001 * budget_error
+        delta_lambda = self.energy_lambda_lr * budget_error
         self.energy_lambda = max(0.0, min(0.1, self.energy_lambda + delta_lambda))
         return self.energy_lambda
     
@@ -142,3 +155,9 @@ class FreeEnergyEngine:
                 self.history[key].append(result[key])
                 if len(self.history[key]) > self.max_history:
                     self.history[key] = self.history[key][-self.max_history:]
+
+    def reset(self):
+        """重置历史与自适应系数 (任务边界调用)"""
+        for key in self.history:
+            self.history[key] = []
+        self.energy_lambda = self._init_energy_lambda

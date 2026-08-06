@@ -69,7 +69,9 @@ def evaluate(model: LSHNModel, test_loader: DataLoader, device: torch.device,
         pred = result["output"].argmax(dim=1)
         correct += pred.eq(y.clamp(0, num_classes - 1)).sum().item()
         total += y.size(0)
-    model.reset()
+    # 评估后只清样本级瞬态 (膜电位/延迟缓冲/prev_spk), 保留引擎状态
+    # (EMA/λ_E 等): 若每次 eval 后全量 reset, 自适应机制永远停在初始段
+    model.reset_sample_state()
     return 100.0 * correct / max(total, 1)
 
 
@@ -125,10 +127,13 @@ def main():
         max_class = max(classes) + 1
         if max_class > num_classes_so_far:
             expand_by = max_class - num_classes_so_far
-            model.expand_classes(expand_by)
+            # expand_classes 返回 None, 直接调 decoder.expand 获取新增参数;
+            # add_param_group 保留旧参数 Adam 矩, 避免重建优化器导致矩清零
+            # (破坏"旧权重冻结"语义)
+            new_params = model.decoder.expand(expand_by)
             num_classes_so_far = max_class
             print(f"  扩展至 {num_classes_so_far} 类")
-            optimizer = torch.optim.AdamW(model.parameters(), lr=0.001, weight_decay=1e-4)
+            optimizer.add_param_group({"params": new_params})
 
         # 训练
         model.train()
@@ -146,6 +151,10 @@ def main():
                     result = model.forward_step(x, target=target_oh)
 
                 loss = criterion(result["output"], y_c)
+                # 并入海马体重构损失 (固定权重 1.0, 与 train.py 默认
+                # recon_weight 一致; 仅训练且有 target 时返回该键)
+                if isinstance(result, dict) and "recon_loss" in result:
+                    loss = loss + 1.0 * result["recon_loss"]
                 loss.backward()
                 nn.utils.clip_grad_norm_(model.parameters(), 1.0)
                 optimizer.step()
@@ -169,6 +178,37 @@ def main():
         avg_acc = metrics.average_accuracy(current_task_idx=t)
         forgetting = metrics.forgetting_measure(current_task_idx=t)
         print(f"  → 平均准确率={avg_acc:.4f} | 遗忘度={forgetting:.4f}")
+
+        # 保存检查点 (model_state_dict + metrics), 便于用 scripts/eval.py 复现
+        ckpt_dir = _project_root / "checkpoints_stage2"
+        ckpt_dir.mkdir(parents=True, exist_ok=True)
+        ckpt_path = ckpt_dir / f"lshn_stage2_task{t}.pt"
+        torch.save({
+            "task_id": t,
+            "model_state_dict": model.state_dict(),
+            "num_classes": num_classes_so_far,
+            "metrics": metrics.report(current_task_idx=t),
+            # 由 args 还原的配置, 使 eval.py 能以相同结构重建模型
+            "config": {
+                "model": {
+                    "input_dim": args.input_dim,
+                    "hidden_dim": args.input_dim,
+                    "num_neurons": args.num_neurons,
+                    "num_groups": 5,
+                    "max_edges": 50,
+                    "initial_classes": args.classes_per_task,
+                    "enable_dendrites": False,
+                    "enable_active_inference": False,
+                },
+                "budget": {"target_spikes_per_step": 20},
+                "continual": {
+                    "tasks": args.num_tasks,
+                    "classes_per_task": args.classes_per_task,
+                },
+                "training": {"fast_steps_per_sample": args.fast_steps},
+            },
+        }, ckpt_path)
+        print(f"  检查点已保存: {ckpt_path}")
 
     # ──────── 最终报告 ────────
     print(f"\n{'='*50}")

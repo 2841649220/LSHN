@@ -2,28 +2,39 @@
 # LSHN 默认配置文件
 # Liquid Spiking Hypergraph Network — 脑启发持续学习系统
 # ============================================================
+# 时间单位约定:
+#   快时钟步 = 1 ms (脉冲传播 / 膜动力学)
+#   慢时钟步 = 100 ms (突触 / 调质 / 稳态更新)
+#   未标注单位的时间常数默认按所在模块的时钟步计
 
 # ---------- 模型架构 ----------
 model:
-  input_dim: 128              # 原始输入维度
-  hidden_dim: 256             # 海马体/编码器隐层维度
-  num_neurons: 1000           # 皮层神经元数
+  input_dim: 128
+  hidden_dim: 256
+  num_neurons: 1000
   num_groups: 10              # 皮层功能分区数 (隐式MoE列数)
   max_edges: 500              # 超图最大超边数
   initial_classes: 2          # 初始分类头类别数
   enable_dendrites: true      # 是否启用树突区室非线性 (白皮书 §1.3.2)
-  enable_active_inference: false  # 是否启用主动推理 (白皮书 §3.1.1)
+  enable_active_inference: false   # 预留:引擎尚未接入主流程(启用会告警)
 
 # ---------- 多时间尺度时钟 ----------
 clocks:
-  fast_ms: 1                  # 快时钟 (脉冲传播)
-  slow_ms: 100                # 慢时钟 (突触/调质更新)
-  ultra_slow_ms: 1000         # 超慢时钟 (结构演化)
+  fast_ms: 1          # 快时钟周期(ms)
+  slow_ms: 100        # 慢时钟周期(ms) = 快时钟步数 = 100
+  ultra_slow_ms: 1000 # 超慢时钟周期(ms)
+
+# ---------- 皮层层 ----------
+cortex:
+  input_gain: 4.0     # 有效输入驱动量级。注意: 泄漏积分器是低通
+                      # 滤波器 (AR(1) 波动衰减 ~0.23), 有效 v 波动 ≈
+                      # 0.23 × gain; 4.0 时皮层发放率 ~7% (预算目标 5%)。
+                      # 配合自适应输入归一化, 对输入绝对尺度鲁棒。
 
 # ---------- 液态门控细胞 ----------
 cell:
-  tau_fast: 10.0              # 快膜时间常数 (ms)
-  tau_slow: 100.0             # 慢门控时间常数 (ms)
+  tau_fast: 10.0              # 快膜时间常数 (快时钟步)
+  tau_slow: 100.0     # 注意:按慢时钟步计(每步=100ms),实际时间常数 = 100×100ms = 10s
   threshold: 1.0              # 脉冲阈值
   noise_std: 0.01             # 基础噪声标准差
   dendrite_threshold: 0.5     # 树突Ca-spike阈值
@@ -31,37 +42,39 @@ cell:
 
 # ---------- 双稳态超图突触 ----------
 synapse:
-  tau_pre: 20.0               # STDP前突触迹时间常数 (ms)
-  tau_post: 20.0              # STDP后突触迹时间常数 (ms)
-  tau_slow_se: 500.0          # s_e双势阱时间常数 (ms)
-  A_plus: 0.01                # STDP增强幅度
-  A_minus: 0.012              # STDP抑制幅度
-  tau_elig: 1000.0            # 资格迹时间常数 (ms)
+  tau_pre: 20.0       # STDP 前迹时间常数(快时钟步)
+  tau_post: 20.0      # STDP 后迹时间常数(快时钟步)
+  # tau_slow_se / A_plus / A_minus / tau_elig 已删除:双势阱/STDP 幅度/资格迹参数当前为模块内常量,无配置入口
 
 # ---------- 轴突延迟 ----------
 axonal_delay:
   max_delay: 20               # 最大延迟步数
-  num_connections: 500         # 连接数 (通常=max_edges)
   delay_lr: 0.001             # 延迟学习率
   min_delay: 1                # 最小延迟步数
+  # num_connections 已删除:连接数直接取自 max_edges,无需单独配置
 
 # ---------- 三因素可塑性 ----------
 three_factor:
   lr: 0.001                   # 可塑性学习率
-  f_max: 1.0                  # 泊松编码器最大频率
+  f_max: 1.0          # 泊松误差编码最大频率
+  importance_lambda: 0.0      # EWC-lite 结构重要性保护强度 (白皮书 §3.4,
+                              # 可选实验机制): 高重要性(旧任务固化)边 Δw 按
+                              # 1/(1+λ·imp) 衰减, 保护旧任务结构。默认 0.0
+                              # (关闭) —— 实测开启会以新任务学习速度下降为
+                              # 代价换取部分保留率, 共享皮层架构下两者尚不能兼得
 
 # ---------- 稳态可塑性 ----------
 homeostatic:
   target_rate: 0.05           # 目标放电率
-  tau_rate: 1000.0            # 放电率估计时间常数 (ms)
+  tau_rate: 1000.0    # 发放率 EMA 时间常数(快时钟步=ms)
   scaling_strength: 0.01      # 突触缩放强度
   ie_lr: 0.001                # 内在兴奋性学习率
 
-# ---------- 隐式MoE (侧抑制) ----------
+# ---------- 隐式MoE ----------
 implicit_moe:
   inhibition_strength: 0.5    # 侧抑制强度
 
-# ---------- 结构演化 (剪枝/生长) ----------
+# ---------- 结构演化 ----------
 evolution:
   prune_threshold: 0.01       # 剪枝阈值 (权重绝对值)
   growth_probability: 0.05    # 生长概率
@@ -69,17 +82,15 @@ evolution:
 
 # ---------- 全局神经调节器 ----------
 neuromodulator:
-  tau_ach: 200.0              # ACh时间常数 (ms)
-  tau_ne: 300.0               # NE时间常数 (ms)
-  tau_da: 500.0               # DA时间常数 (ms)
-  ach_gain: 0.05              # ACh增益
-  ne_gain: 0.05               # NE增益
-  da_gain: 0.1                # DA增益
+  tau_ach: 200.0      # 注意:按慢时钟步计(每步=100ms),200 步 ≈ 20s
+  tau_ne: 300.0       # 同上,300 步 ≈ 30s
+  tau_da: 500.0       # 同上,500 步 ≈ 50s
+  # ach_gain / ne_gain / da_gain 已删除:调质驱动为固定公式,无增益配置
 
 # ---------- 星形胶质门控 ----------
 astrocyte:
-  tau_ca: 5000.0              # 钙动力学时间常数 (ms)
-  ip3_gain: 0.02              # IP3增益
+  tau_ca: 500.0       # 钙动力学时间常数(慢时钟步,500 步 ≈ 50s)。原 5000 使门控响应需 500s(实际冻结),已修正
+  # ip3_gain 已删除
 
 # ---------- 变分自由能引擎 ----------
 free_energy:
@@ -89,30 +100,32 @@ free_energy:
 
 # ---------- 脉冲预算控制器 ----------
 budget:
-  target_spikes_per_step: 50  # 目标脉冲数/步
+  target_spikes_per_step: 50   # 每样本每快步目标脉冲数(与 cortex.get_spike_count_and_reset 返回值同单位)
   kp: 0.01                    # 比例增益
   ki: 0.001                   # 积分增益
   integral_max: 10.0          # 积分防饱和上限
   threshold_adj_scale: 0.01   # 阈值调整比例
   inhibition_adj_scale: 0.01  # 抑制调整比例
 
-# ---------- 主动推理 ----------
+# ---------- 主动推理(预留) ----------
 active_inference:
   num_policies: 8             # 策略数
   state_dim: 256              # 隐状态维度
   obs_dim: 128                # 观测维度
   planning_horizon: 5         # 规划时域
   efe_temperature: 1.0        # EFE softmax温度
+  # 注意:ActiveInferenceEngine 尚未接入主流程,此段为预留配置(enable_active_inference=True 会告警)
 
 # ---------- 海马体 ----------
 hippocampus:
-  replay_interval: 100        # 回放间隔 (快时钟步数)
-  replay_steps: 1             # 每次回放步数
+  input_gain: 4.0     # 有效输入驱动量级。同皮层注释 (AR(1) 低通); 4.0 时
+                      # 发放率 ~5%
+  # replay_interval / replay_steps 已删除:回放由慢/超慢时钟硬触发
 
 # ---------- MODWT编码器 ----------
 encoder:
-  num_scales: 3               # 小波分解尺度数
-  wavelet: "db4"              # 小波基函数
+  num_scales: 3       # 多尺度提取器数量(注意:当前实现为多尺度线性提取+泊松编码,非真实小波;小波需时间维输入)
+  # wavelet 已删除:实现不使用小波基
 
 # ---------- 训练配置 ----------
 training:
@@ -121,28 +134,26 @@ training:
   weight_decay: 0.0001
   num_epochs: 100
   fast_steps_per_sample: 20   # 每个样本运行的快时钟步数
-  optimizer: "adamw"
-  scheduler: "cosine"
-  warmup_steps: 500
   gradient_clip: 1.0
   log_interval: 50            # 日志打印间隔 (步)
-  save_interval: 1000         # 模型保存间隔 (步)
+  seed: 42            # 随机种子(可复现)
+  recon_weight: 1.0   # 海马体重构损失权重(并入训练总损失)
+  # optimizer / scheduler / warmup_steps / save_interval 已删除:当前固定 AdamW,无 scheduler
 
 # ---------- 持续学习 ----------
 continual:
   tasks: 5                    # 总任务数
   classes_per_task: 2         # 每个任务新增类别数
-  consolidation_epochs: 5     # 巩固轮次
-  replay_buffer_size: 1000    # 回放缓冲区大小
+  # consolidation_epochs / replay_buffer_size 已删除:当前无显式回放缓冲区/巩固轮次配置
 
 # ---------- 数据 ----------
 data:
-  dataset: "split_mnist"      # 数据集名称
   data_dir: "./data"          # 数据目录
   num_workers: 4
   pin_memory: true
+  # dataset 已删除:由命令行 --synthetic 或数据目录决定
 
 # ---------- 设备 ----------
 device:
   cuda: true                  # 是否使用GPU
-  mixed_precision: false      # 是否混合精度
+  # mixed_precision 已删除:当前未实现 autocast 混合精度(状态变量需 FP32 保护,后续版本引入)

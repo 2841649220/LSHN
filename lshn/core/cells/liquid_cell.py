@@ -56,35 +56,40 @@ class DendriteCompartment(nn.Module):
     def forward(self, I_syn: torch.Tensor) -> torch.Tensor:
         """
         对输入电流进行树突非线性处理
-        
+
         Args:
             I_syn: (num_neurons,) 或 (batch, num_neurons) 突触输入电流
-            
+
         Returns:
             I_dendrite: 与 I_syn 相同形状 树突处理后的电流 (汇聚到胞体)
         """
         is_batched = I_syn.dim() > 1
         if not is_batched:
             I_syn = I_syn.unsqueeze(0)
-        
+
         batch_size = I_syn.shape[0]
-        
+
+        # branch_input: (num_branches, batch, num_neurons)
         branch_input = self.branch_weights.unsqueeze(1) * I_syn.unsqueeze(0)
-        
-        self.branch_potential.data.mul_(self.branch_decay).add_(branch_input.mean(dim=1).detach())
-        
-        above_threshold = (self.branch_potential > self.dendrite_threshold).float()
-        ca_spike = above_threshold * torch.relu(self.branch_potential - self.dendrite_threshold) * 2.0
-        linear_pass = (1.0 - above_threshold) * self.branch_potential
+
+        # 分支电位更新: 保留 batch 维度 (每个样本独立积分),输出使用可微路径
+        # (梯度可流向 branch_weights 与 I_syn),buffer 仅保存 detached 状态副本
+        # (取 batch 平均回写,与 LiquidGatedCell 的均值场状态策略一致)
+        updated_potential = self.branch_decay * self.branch_potential.unsqueeze(1) + branch_input
+        self.branch_potential.data.copy_(updated_potential.detach().mean(dim=1))
+
+        above_threshold = (updated_potential > self.dendrite_threshold).float()
+        ca_spike = above_threshold * torch.relu(updated_potential - self.dendrite_threshold) * 2.0
+        linear_pass = (1.0 - above_threshold) * updated_potential
         branch_output = linear_pass + ca_spike
-        
-        I_dendrite = branch_output.sum(dim=0)
-        
-        self.branch_potential.data.mul_(1.0 - above_threshold.data * 0.5)
-        
+
+        I_dendrite = branch_output.sum(dim=0)  # (batch, num_neurons)
+
+        self.branch_potential.data.mul_(1.0 - above_threshold.detach().mean(dim=1) * 0.5)
+
         if not is_batched:
             I_dendrite = I_dendrite.squeeze(0)
-        
+
         return I_dendrite
 
 
@@ -103,14 +108,16 @@ class LiquidGatedCell(nn.Module):
     - STE (直通估计器) 使梯度可流通
     - g_slow 实际调制膜电位噪声强度和可塑性窗口
     """
-    def __init__(self, num_neurons: int, tau_v: float = 10.0, tau_g_fast: float = 5.0, 
+    def __init__(self, num_neurons: int, tau_v: float = 10.0, tau_g_fast: float = 5.0,
                  tau_g_slow: float = 200.0, tau_a: float = 100.0, theta_0: float = 1.0,
                  enable_dendrites: bool = False, num_branches: int = 4,
+                 dendrite_threshold: float = 0.3, noise_std: float = 0.01,
+                 input_gain: float = 1.0,
                  device=None, dtype=None):
         super().__init__()
         factory_kwargs = {'device': device, 'dtype': dtype}
         self.num_neurons = num_neurons
-        
+
         self.tau_v = tau_v
         self.tau_g_fast = tau_g_fast
         self.tau_g_slow = tau_g_slow
@@ -118,11 +125,26 @@ class LiquidGatedCell(nn.Module):
         self.a_inc = 0.05
         self.theta_0 = theta_0
         self.enable_dendrites = enable_dendrites
-        
+        self.noise_std = noise_std
+        # 输入电流增益: 自适应归一化后的目标驱动量级 (≈ 有效输入标准差)。
+        # 配合 _input_std_ema 使发放率对输入分布/拓扑演化鲁棒
+        # (初始化"唤醒"关键旋钮, 由皮层/海马体配置按层级设置)
+        self.input_gain = input_gain
+        # 输入电流标准差的 EMA (用于自适应归一化)。
+        # 首次观测非零输入时直接赋值 (避免慢收敛), 静默期冻结不衰减。
+        self.register_buffer(
+            "_input_std_ema", torch.ones((), **factory_kwargs) * 1e-4,
+            persistent=False,
+        )
+        self.register_buffer(
+            "_norm_seen", torch.zeros((), dtype=torch.bool, device=device),
+            persistent=False,
+        )
+
         # 树突非线性模块 (可选)
         if enable_dendrites:
             self.dendrite = DendriteCompartment(
-                num_neurons, num_branches, **factory_kwargs
+                num_neurons, num_branches, dendrite_threshold, **factory_kwargs
             )
         
         # 门控线性层参数 (element-wise, 低开销)
@@ -136,7 +158,15 @@ class LiquidGatedCell(nn.Module):
         self.bias_s = nn.Parameter(torch.zeros(num_neurons, **factory_kwargs))
         
         # 快变量状态
-        self.register_buffer("v", torch.zeros(num_neurons, **factory_kwargs))
+        # v (膜电位) 按样本持有 (batch, num_neurons): 膜电位是快变量, 样本间
+        # 必须独立积分。原实现每步写回 batch 均值 → 零均值输入下 E_batch[v]≈0,
+        # buffer 永久塌缩, 膜电位从不积分 (每步 v≈0.1·input), 网络初始化
+        # 即静默, 这是"网络学不到东西"的第一性根因。
+        # 初始为空 (0, num_neurons), 首次 forward 时按 batch 重建。
+        # persistent=False: 膜电位是瞬态状态, 不进 state_dict
+        # (检查点更小, 加载时无形状不匹配告警)。
+        self.register_buffer("v", torch.zeros(0, num_neurons, **factory_kwargs),
+                             persistent=False)
         self.register_buffer("g_fast", torch.zeros(num_neurons, **factory_kwargs))
         
         # 慢变量状态
@@ -152,8 +182,13 @@ class LiquidGatedCell(nn.Module):
         self.register_buffer("window_idx", torch.tensor(0, dtype=torch.long, device=device))
         
     @staticmethod
-    def _fast_sigmoid(x, alpha=25.0):
-        """替代梯度函数"""
+    def _fast_sigmoid(x, alpha=10.0):
+        """替代梯度函数 (STE 代理梯度)
+
+        alpha=25 时 sigmoid'(25·(v−θ)) 在 |v−θ|>0.15 处即衰减到 <0.01,
+        阈值附近的梯度带过窄, 初始化稍有偏差梯度即数值死亡;
+        alpha=10 使梯度带加宽 ~2.5 倍, 梯度更易流通。
+        """
         return torch.sigmoid(alpha * x)
 
     def reset_hidden(self):
@@ -203,26 +238,57 @@ class LiquidGatedCell(nn.Module):
             I_syn = self.dendrite(I_syn)
             
         decay = 1.0 - (1.0 / self.tau_v)
-        
-        # 膜电位 v 也需要 batch 适配
+
+        # 膜电位 v 按样本持有 (batch, num_neurons): 批量变化时重建状态
+        # (保留旧状态的批量均值); g_fast/a 为慢门控/适应变量, 维持
+        # 单样本语义并取 batch 平均回写 (慢变量均值场化可接受)。
         if self.v.shape[0] != batch_size:
-             v_current = self.v.unsqueeze(0).expand(batch_size, -1)
-             g_fast_current = self.g_fast.unsqueeze(0).expand(batch_size, -1)
-             a_current = self.a.unsqueeze(0).expand(batch_size, -1)
-        else:
-             v_current = self.v
-             g_fast_current = self.g_fast
-             a_current = self.a
+            new_v = self.v.new_empty(batch_size, self.num_neurons)
+            if self.v.shape[0] > 0:
+                new_v.copy_(self.v.mean(dim=0, keepdim=True))
+            else:
+                new_v.zero_()
+            self.v = new_v
+        v_current = self.v
+        g_fast_current = self.g_fast.unsqueeze(0).expand(batch_size, -1)
+        a_current = self.a.unsqueeze(0).expand(batch_size, -1)
 
         # g_slow 调制噪声强度 (仅训练时注入)
         if self.training:
-            noise_scale = 0.01 * (1.0 + self.g_slow.unsqueeze(0))
+            noise_scale = self.noise_std * (1.0 + self.g_slow.unsqueeze(0))
             noise = torch.randn_like(v_current) * noise_scale
         else:
             noise = torch.zeros_like(v_current)
         
-        # 膜电位更新
-        v_next = decay * v_current + (1.0 - decay) * (I_syn + I_ext - I_inh) + g_fast_current * noise
+        # 输入电流自适应归一化: 除以其 EMA 标准差, 使有效驱动量级 ≈ input_gain,
+        # 与输入绝对尺度无关 (对数据集分布变化/结构演化导致的驱动衰减鲁棒)。
+        # 首次观测直接赋值; 静默期 (std=0) 冻结 ema 不衰减, 恢复输入时
+        # 不会因陈旧小尺度而病理放大。分母下限仅防除零。
+        # 语义与原实现逐分支一致: 仅当 cur_std>0 时更新 ema; 未见输入前直接
+        # 赋值。原实现用 0 维 CUDA 张量的 Python bool 判断 (if cur_std > 0 /
+        # if not self._norm_seen), 每快步 2 次全设备同步; 现用 torch.where /
+        # logical_or_ 纯 GPU 侧表达, 语义完全等价且无同步。
+        # EMA 仅在 training 模式更新: 评估/推理不污染归一化统计。
+        if self.training:
+            cur_std = I_syn.detach().std()
+            new_ema = torch.where(self._norm_seen,
+                                  self._input_std_ema * 0.99 + cur_std * 0.01,
+                                  cur_std)
+            self._input_std_ema.data.copy_(
+                torch.where(cur_std > 0, new_ema, self._input_std_ema)
+            )
+            self._norm_seen.data.logical_or_(cur_std > 0)
+        norm_scale = self._input_std_ema.clamp(min=1e-4)
+
+        # 膜电位更新。两点与白皮书 §3.3.3 的偏差说明 (实现有意保留):
+        # 1) 白皮书膜电位方程含 −a_t 适应项, 本实现将适应折入有效阈值
+        #    (theta = theta_0 + a, 见 step_slow), 方程中无显式 −a_t;
+        # 2) input_gain 是整项增益, 实际同样放大 I_syn 中携带的负向
+        #    (抑制性) 分量, 并非"仅兴奋性" —— 保留以维持自适应归一化的
+        #    净驱动尺度语义。
+        v_next = decay * v_current + (1.0 - decay) * (
+            I_syn * (self.input_gain / norm_scale) + I_ext - I_inh
+        ) + g_fast_current * noise
         
         # 有效阈值
         effective_theta = self.theta.unsqueeze(0)
@@ -234,10 +300,9 @@ class LiquidGatedCell(nn.Module):
         spk_hard = (v_next >= effective_theta).float()
         spk = spk_hard + (spk_soft - spk_soft.detach())
         
-        # 软重置并更新状态 (取 batch 平均回写 buffer，或保留 batch 状态)
-        # 这里的实现选择: 状态 buffer 始终保留单样本维度，batch 运行时临时扩展
+        # 软重置并更新状态 (按样本写回, 保留 batch 维度的独立膜电位轨迹)
         v_post_reset = v_next - spk_hard * effective_theta
-        self.v.data.copy_(v_post_reset.mean(dim=0))
+        self.v.data.copy_(v_post_reset.detach())
         
         # 快门控更新
         decay_f = 1.0 - (1.0 / self.tau_g_fast)
@@ -279,8 +344,9 @@ class LiquidGatedCell(nn.Module):
 
     def update_delta_window(self, delta_spk: torch.Tensor):
         """记录反向传递的误差脉冲到窗口中，供慢时钟更新使用。"""
-        last_write_idx = ((self.window_idx - 1) % 100).item()
-        self.delta_window[last_write_idx] = delta_spk
+        # 0 维 CUDA 张量索引合法 (全 GPU 侧), 避免 .item() 每快步同步一次
+        delta_spk = delta_spk.detach().to(self.delta_window.device, self.delta_window.dtype)
+        self.delta_window[(self.window_idx - 1) % 100] = delta_spk
     
     def get_plasticity_modulation(self) -> torch.Tensor:
         """

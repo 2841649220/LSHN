@@ -36,5 +36,7 @@ Thumbs.db
 
 # Project-specific
 .gh_config/
+# gh CLI 凭据目录 (hosts.yml 含 GitHub token, 禁止提交)
+.gh/
 csrc/*.so
 csrc/*.pyd
